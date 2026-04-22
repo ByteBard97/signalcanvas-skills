@@ -8,7 +8,7 @@ description: >
   Based on vuejs-ai/skills vue-best-practices.
 ---
 
-# Vue 3 Best Practices — SignalCanvas
+# Vue 3 Best Practices
 
 Stack: Vue 3 + `<script setup lang="ts">` + Pinia + Vitest. Read this before writing any `.vue` file or composable.
 
@@ -81,7 +81,7 @@ Key rules:
 - Type all component boundaries: `defineProps<Props>()`, `defineEmits<Emits>()`, `InjectionKey<T>`.
 - `v-model` via `defineModel()` for two-way bindings (Vue 3.4+).
 
-**SignalCanvas provide/inject pattern:**
+**Recommended provide/inject pattern:**
 ```ts
 // useXxxContext.ts
 import type { InjectionKey } from 'vue'
@@ -131,7 +131,7 @@ This keeps view components thin and makes the modal layer independently readable
 
 ## 7. Pinia stores
 
-- One store per domain (canvas scene, graph, user library, project pages, etc.).
+- One store per domain (auth, user profile, cart, dashboard filters, etc.).
 - Stores hold shared state. Local component state stays in `ref`/`reactive` or composables.
 - Use `shallowRef` + `triggerRef` for large normalized maps for performance.
 - Never destructure store properties outside `storeToRefs()` — reactivity breaks.
@@ -151,7 +151,7 @@ Every hardcoded value needs a named constant — including:
 
 ## 9. Testing
 
-Run `npm run audit:tests` after every change. All tests must pass before committing.
+Run the project's test command (e.g. `npm test`, `npm run test:unit`, `vitest`) after every change. All tests must pass before committing.
 
 - Test actual behavior — not internal implementation details.
 - For Pinia stores: `setActivePinia(createPinia())` in `beforeEach`, `localStorage.clear()` if the store reads from localStorage on init.
@@ -167,5 +167,4 @@ Run `npm run audit:tests` after every change. All tests must pass before committ
 - [ ] View/route components are thin — no inline feature implementations?
 - [ ] All reactive state uses the right primitive?
 - [ ] No magic numbers?
-- [ ] `npm run audit:tests` passes?
-- [ ] No `rm` used? (`trash` only)
+- [ ] Project test suite passes?
