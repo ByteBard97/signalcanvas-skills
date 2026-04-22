@@ -14,7 +14,7 @@ Claude Code picks up skills from `~/.claude/skills/` automatically.
 
 | Skill | When to use |
 |-------|-------------|
-| `vue-signalcanvas` | Any `.vue` file, composable, or Pinia store in SignalCanvasFrontend |
+| `vue-best-practices` | Any `.vue` file, composable, or Pinia store in any Vue 3 project |
 | `patchlang` | Writing, editing, or validating `.patch` files |
 | `code-rules` | Any code task — enforces file size, DRY, naming, and error handling rules |
 
@@ -23,11 +23,11 @@ Claude Code picks up skills from `~/.claude/skills/` automatically.
 Invoke a skill explicitly for best results:
 
 ```
-Use vue-signalcanvas skill. Add a settings panel to CanvasToolbar.
+Use vue-best-practices skill. Add a settings panel to CanvasToolbar.
 ```
 
 Or Claude will pick them up automatically based on the task context.
 
 ## Contributing
 
-Edit the `SKILL.md` in any skill directory. The `vue-signalcanvas` skill is based on [vuejs-ai/skills](https://github.com/vuejs-ai/skills) with SignalCanvas-specific additions.
+Edit the `SKILL.md` in any skill directory. The `vue-best-practices` skill is based on [vuejs-ai/skills](https://github.com/vuejs-ai/skills).

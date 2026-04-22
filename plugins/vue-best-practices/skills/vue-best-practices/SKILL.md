@@ -1,11 +1,11 @@
 ---
-name: vue-signalcanvas
+name: vue-best-practices
 description: >
-  Vue 3 + TypeScript best practices for SignalCanvas. Load for any .vue file,
-  composable, Pinia store, or Vue-related task in SignalCanvasFrontend.
-  Covers component decomposition, composable patterns, provide/inject,
-  Pinia, and SignalCanvas-specific file size and architecture rules.
-  Based on vuejs-ai/skills vue-best-practices with SignalCanvas additions.
+  Vue 3 + TypeScript best practices. Load for any .vue file, composable,
+  Pinia store, or Vue-related task in any Vue 3 project. Covers component
+  decomposition, composable patterns, provide/inject, Pinia, reactivity,
+  SFC structure, and file size and architecture rules.
+  Based on vuejs-ai/skills vue-best-practices.
 ---
 
 # Vue 3 Best Practices — SignalCanvas

@@ -1,0 +1,5 @@
+{
+  "name": "vue-best-practices",
+  "description": "Vue 3 + TypeScript best practices: reactivity, SFC structure, composables, provide/inject, Pinia, component decomposition, file-size gates",
+  "version": "1.0.0"
+}

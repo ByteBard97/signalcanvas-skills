@@ -1,5 +1,0 @@
-{
-  "name": "vue-signalcanvas",
-  "description": "Vue 3 + SignalCanvas patterns: provide/inject, composables, modal extraction, file-size gates",
-  "version": "1.0.0"
-}

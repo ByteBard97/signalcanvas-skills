@@ -9,9 +9,9 @@
   },
   "plugins": [
     {
-      "name": "vue-signalcanvas",
-      "source": "./plugins/vue-signalcanvas",
-      "description": "Vue 3 + SignalCanvas patterns: provide/inject, composables, modal extraction, file-size gates"
+      "name": "vue-best-practices",
+      "source": "./plugins/vue-best-practices",
+      "description": "Vue 3 + TypeScript best practices: reactivity, SFC structure, composables, provide/inject, Pinia, component decomposition, file-size gates"
     },
     {
       "name": "patchlang",
