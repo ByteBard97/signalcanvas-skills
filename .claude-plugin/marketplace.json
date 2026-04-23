@@ -22,6 +22,11 @@
       "name": "code-rules",
       "source": "./plugins/code-rules",
       "description": "SignalCanvas code quality rules: file size, naming, DRY, no magic numbers, trash not rm"
+    },
+    {
+      "name": "rig-builder",
+      "source": "./plugins/rig-builder",
+      "description": "Build or import a SignalCanvas rig via MCP — from conversation, CSV/XLSX patch lists, or screenshots. Section-by-section set_patch protocol with spring animation."
     }
   ]
 }
