@@ -215,7 +215,7 @@ ring OptoCore_Redundant {
 ## 5. Slot / Card Installation
 
 Templates with expansion bays declare `slot` lines. Cards are templates with
-`device_type: "card"` and `fits` in meta. Instances assign specific cards to slots
+`kind: "card"` and `fits` in meta. Instances assign specific cards to slots
 using bare identifiers (not quoted strings).
 
 ```
@@ -223,7 +223,7 @@ template MY16_AUD {
   meta {
     manufacturer: "Yamaha"
     model: "MY16-AUD"
-    device_type: "card"
+    kind: "card"
     fits: "MY_Format"
   }
   ports {

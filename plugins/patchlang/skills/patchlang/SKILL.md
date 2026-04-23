@@ -1,7 +1,7 @@
 ---
 name: patchlang
 description: >
-  PatchLang v0.2.5 language reference for writing, editing, and migrating .patch files.
+  PatchLang v0.2.8 language reference for writing, editing, and migrating .patch files.
   Use this skill whenever you are writing or editing a .patch file, converting a hardware
   datasheet into PatchLang, updating legacy PatchLang syntax to the current version, or
   generating templates/instances/connections for SignalCanvas. Also use it when the user
@@ -9,7 +9,7 @@ description: >
   they don't say "PatchLang" explicitly.
 ---
 
-# PatchLang v0.2.5
+# PatchLang v0.2.8
 
 You are writing **PatchLang v0.2.5**. The language describes broadcast/AV signal flow:
 templates define device types, instances are physical devices, and connections are cables.
@@ -77,8 +77,24 @@ The bridge target is where the signal is *going*, not where it comes from.
 `FOH_Console` is valid. `FOH-Console` is a parse error.
 
 **5. `card` is not a keyword.**
-Cards are regular templates with `meta { device_type: "card", fits: "SlotFormat" }`.
+Cards are regular templates with `meta { kind: "card", fits: "SlotFormat" }`.
 There is no `card` declaration syntax.
+
+The `kind` field classifies a template's role. Valid values:
+
+| Kind | Meaning |
+|------|---------|
+| `device` | Physical hardware (default when `kind` is absent) |
+| `card` | Expansion card — requires `fits` |
+| `fixed-converter` | Deterministic routing device (stagebox, bridge) |
+| `stage-core` | Passive XLR loom/snake |
+| `mic-di` | Single microphone or DI box |
+| `mic-splitter` | Multi-way analogue signal splitter |
+| `rf-system` | Wireless mic receiver, IEM transmitter |
+| `system` | Logical grouping of devices (room, rack, subsystem) |
+| `venue` | Top-level facility or building |
+
+`device_type` is a deprecated alias for `kind` — the compiler accepts it but emits an M-I02 warning. Use `kind` in all new files.
 
 **6. Slot assignments use bare identifiers, not quoted strings.**
 ```
@@ -89,8 +105,10 @@ slot MY_Slot[1]: "MY16_AUD"     # wrong (legacy — do not emit)
 **7. Ring members must use explicit port references in emitted code.**
 ```
 member Console.OptoCore_A       # correct — explicit, survives device changes
-member Console                  # implicit — only safe in source, avoid in generated code
+member Console                  # implicit — fragile if device gains a second ring port
 ```
+The implicit form is valid source syntax; the emitter must always produce the explicit form.
+R04 fires when implicit resolution is ambiguous (zero or multiple matching ports).
 
 **8. Config labels reference split port names.**
 ```
@@ -107,6 +125,20 @@ The old `pl_TemplateName_PortName` underscore format is legacy — do not genera
 `template`, `instance`, `is`, `connect`, `bridge`, `bridge_group`, `link_group`,
 `signal`, `flag`, `stream`, `config`, `ports`, `meta`, `in`, `out`, `io`, `ring`, `member`
 are all reserved. `card` and `auto` (outside brackets) are valid identifiers.
+`for`, `over`, `generate` are reserved for future parametric generation — no grammar exists yet.
+
+**11. Template naming is required (not advisory) in shared libraries.**
+Model numbers and manufacturer-prefixed names: `CL5`, `Rio3224`, `Neutrik_Patch_Bay`. Generic
+names (`Patch_Bay`, `Power_Amp`) are only acceptable in project-local templates never published.
+Violations cause namespace collisions in multi-file projects.
+
+**12. S15 (range size mismatch) is a hard error.**
+Left and right channel counts on a `connect` must match. Suppress with `@suppress(structural)`
+only when an intentional partial connect is documented.
+
+**13. `[auto]` has four distinct error codes.**
+A01: used in `route`/`bus` (not allowed). A02: both sides use `[auto]`. A03: scalar port or
+cannot infer count. A04: overflowed port range. A05: enough channels exist but no contiguous block.
 
 ---
 
@@ -120,12 +152,44 @@ template TemplateName {
     manufacturer: "Acme"
     model: "Model_X"
     category: "Console"         # Camera | Stagebox | Console | Router | IEM | Sync | etc.
+    kind: "device"              # see kind table above; omit for plain hardware
+    dante_chipset: "Brooklyn_II"  # optional: Ultimo | Broadway | Brooklyn_II | Brooklyn_3 | HC
   }
   ports {
     PortName[1..N]: direction(Connector) [attr1, attr2]
   }
   bridge LocalPort -> LocalPort  # logical signal path inside the template
   slot SlotName[1..N]: SlotFormat
+  slot SlotName[1..N]: SlotFormat { direction: "any", channels: 16 }  # with body
+}
+```
+
+#### Template parameters with defaults
+
+```
+template StageSplit(mic_count: 32, name: "Default") {
+  ports {
+    Mic_In[1..32]: in(XLR)
+    Dante_Out[1..32]: out(etherCON) [Dante]
+  }
+}
+
+instance SL_Split is StageSplit(mic_count: 16)
+```
+
+#### Template composition
+
+Templates can contain nested `instance` and `connect` to represent rooms, racks, or systems.
+
+```
+template FOH_Rack {
+  ports {
+    Dante_In[1..64]: in(etherCON) [Dante]
+    Dante_Out[1..64]: out(etherCON) [Dante]
+  }
+  instance Console is CL5
+  instance Stagebox is Rio3224
+  connect Stagebox.Dante_Pri_Out -> Console.Dante_Pri_In
 }
 ```
 
@@ -137,6 +201,15 @@ instance DeviceName is TemplateName {
   ip: "192.168.1.10"
   slot SlotName[1]: CardTemplateName
   route Port_In[1] -> Port_Out[1]
+  bus Main_LR {
+    label: "SPOTIFY>FOH"        # optional display name — use when bus name is not human-readable
+    input: Fader[1..8]
+    output: Matrix_Out[1..2]
+  }
+}
+
+instance FOH_Console is CL5(mic_count: 48) @version(">=4.0") {
+  location: "Front of House"
 }
 ```
 
@@ -147,13 +220,47 @@ connect Instance_A.Port_Out[1..4] -> Instance_B.Port_In[1..4] {
   cable: "Cable_Label"
   length: "30m"
   @suppress(logical)            # optional: suppress specific DRC layers
+  mapping: "1:1"                # optional: channel mapping (see below)
 }
+```
+
+#### Mapping property
+
+```
+mapping: "1:1"                    # sequential one-to-one (default)
+mapping: "offset 16"              # shifted — dst channels start at 17
+mapping: "1->3, 2->4, 3->1"      # explicit per-channel pairs
 ```
 
 ### Bridge (top-level)
 
 ```
 bridge Instance_A.Port_Out[1..32] -> Instance_B.Port_In[1..32]
+```
+
+### Bridge Group
+
+Sequential channel auto-fill across multiple sources:
+
+```
+bridge_group FOH.Dante_Pri_In {
+  SL.Mic_In[1..4]     # maps to In[1..4]
+  SR.Mic_In[1..4]     # maps to In[5..8]
+}
+```
+
+### Link Group
+
+Groups multiple connects as a logical unit (e.g., quad-link 4K SDI):
+
+```
+link_group Cam1_UHD {
+  connect Cam1.SDI_Out[1] -> Router.SDI_In[1]
+  connect Cam1.SDI_Out[2] -> Router.SDI_In[2]
+  connect Cam1.SDI_Out[3] -> Router.SDI_In[3]
+  connect Cam1.SDI_Out[4] -> Router.SDI_In[4]
+  mode: "quad_link_4K"
+}
 ```
 
 ### Ring
@@ -170,14 +277,21 @@ ring RingName {
 ### Signal / Flag / Stream
 
 ```
-signal LeadVocal {
+signal Lead_Vocal {
   origin: Stagebox.Mic_In[1]
+  channel: "1"
   description: "Worship leader vocal"
 }
 
+stream SL_Dante_Primary {
+  source: Stagebox.Dante_Pri_Out
+  channels: "32"
+  protocol: "Dante"
+}
+
 flag Genlock_OK {
-  description: "All cameras genlocked"
-  severity: "info"
+  description: "All cameras locked to house sync"
+  severity: "warning"
 }
 ```
 
@@ -201,9 +315,9 @@ use buildings.foh               # bare namespace → buildings/foh.patch
 ### Auto-assignment
 
 ```
-connect Stage.Dante_Pri_Out[auto] -> Console.Dante_Pri_In[1..16]
+connect Stage.Dante_Pri_Out[1..16] -> Console.Dante_Pri_In[auto]
 # Compiler fills [auto] with next N available contiguous channels in declaration order.
-# Do not use [auto] on both sides. Do not use [auto] with route or bus.
+# Do not use [auto] on both sides (A02). Do not use [auto] with route or bus (A01).
 ```
 > **Note:** `[auto]` is specified in v0.2.5 but may not be in the current WASM build.
 > Verify before using; fall back to explicit ranges if the parser rejects it.
@@ -234,6 +348,7 @@ These patterns appear in pre-v0.2.0 files. Update them when you encounter them.
 
 | Old (legacy) | New (v0.2.5) |
 |---|---|
+| `meta { device_type: "card" }` | `meta { kind: "card" }` — `device_type` is deprecated (M-I02) |
 | `Dante_io[1..32]: io(etherCON) [Dante]` | Two lines: `Dante_In[1..32]: in(...)` + `Dante_Out[1..32]: out(...)` |
 | Single `connect A.Dante -> B.Dante` | Two connects: forward path + return path |
 | `bridge A.Dante_io -> B.Dante_io` | `bridge A.Mic_In -> A.Dante_Pri_Out` (inside template, directional) |
@@ -247,23 +362,73 @@ These patterns appear in pre-v0.2.0 files. Update them when you encounter them.
 
 ## DRC Quick Reference
 
-Errors you will see and what they mean:
+Full error code table:
 
-| Code | Meaning | Fix |
-|------|---------|-----|
-| D01/D02 | `out→out` or `in→in` connection | Swap direction on one side; check split port names |
-| L01 | Protocol mismatch (Dante → SDI, etc.) | Check that both ports share a protocol attribute; use `@suppress(logical)` if intentional |
-| M01 | Connector mismatch (XLR → BNC) | Add `@suppress(mechanical)` if intentional cross-connection |
-| S03 | Unknown port on instance | Port name typo, or using old `io` name after migration to split ports |
-| S06 | Channel index out of range | Index exceeds the port's `[1..N]` declaration |
-| S14 | Vector port referenced without index | Add `[1..N]` or `[auto]` to the reference |
-| R01-R04 | Ring errors | R01: bad instance name; R02: bad port name; R03: protocol mismatch; R04: ambiguous implicit member |
-| C01 | Orphaned device (info only) | Expected on leaf devices with no connections yet; not an error |
-| S15 | Range size mismatch on `connect` | Left and right channel counts differ — fix the ranges, or add `@suppress(structural)` if intentional (partial connect) |
-| A02-A05 | Auto-assignment errors | A02: both sides are `[auto]`; A03: scalar port; A04: range overflow; A05: fragmented range |
+| Code | Layer | Sev | Meaning | Fix |
+|------|-------|-----|---------|-----|
+| D01 | Direction | Error | `out→out` connection | Swap direction; check split port names |
+| D02 | Direction | Error | `in→in` connection | Swap direction |
+| D03 | Direction | Error | Direction violation (general) | Check port directions |
+| S01 | Structural | Error | Instance references unknown template | Fix template name |
+| S02 | Structural | Error | Slot assignment references unknown card template | Fix card template name |
+| S03 | Structural | Error | Unknown port on instance | Port name typo, or using old `io` name after split migration |
+| S04 | Structural | Error | Route references unknown port | Fix port name in route |
+| S05 | Structural | Error | Bus references unknown port | Fix port name in bus |
+| S06 | Structural | Error | Channel index out of declared range | Index exceeds `[1..N]` |
+| S07 | Structural | Error | Config block references unknown instance | Fix instance name in config |
+| S08 | Structural | Error | Signal origin references unknown instance | Fix instance name |
+| S09 | Structural | Error | Signal origin references unknown port | Fix port name |
+| S10 | Structural | Error | Duplicate instance name | Rename one instance |
+| S11 | Structural | Error | Duplicate signal name | Rename one signal |
+| S12 | Structural | Warning | Card `fits` does not match slot format | Check card meta vs slot declaration |
+| S13 | Structural | Warning | Card `fits` but no slot uses that format | Verify slot format name |
+| S14 | Structural | Warning | Vector port referenced without index | Add `[1..N]` or `[auto]` |
+| S15 | Structural | **Error** | Range size mismatch on `connect` | Fix channel counts; `@suppress(structural)` only for intentional partial connect |
+| S16 | Structural | Error | Card port name collision — card port conflicts with template port or another card's port | Rename the conflicting port; not suppressible |
+| M01 | Mechanical | Error | Connector mismatch (XLR → BNC) | `@suppress(mechanical)` if intentional |
+| E01 | Electrical | Error | Level mismatch — may damage equipment | Check levels |
+| E02 | Electrical | Warning | Level mismatch — may need a pad | Add pad or `@suppress(electrical)` |
+| L01 | Logical | Error | Protocol mismatch (Dante → MADI, etc.) | Check protocol attributes; `@suppress(logical)` if intentional |
+| T01 | Temporal | Warning | Clock domain mismatch | Verify clocking; `@suppress(temporal)` if intentional |
+| R01 | Ring | Error | Ring member references unknown instance | Fix instance name |
+| R02 | Ring | Error | Ring member references unknown port (explicit form) | Fix port name |
+| R03 | Ring | Warning | Ring member port missing ring protocol attribute | Check port attributes |
+| R04 | Ring | Error | Implicit member ambiguous (zero or multiple matching ports) | Use explicit `member Instance.Port` |
+| C01 | Convention | Info | Orphaned device (no connections/bridges/rings) | Expected on leaf devices |
+| C02 | Convention | Warning | Duplicate connection (same source-target pair) | Remove duplicate |
+| C03 | Convention | Info | Template declared with zero ports | Intentional or add ports |
+| C04 | Convention | Info | Bus declared with zero outputs | Add outputs |
+| C05 | Convention | Info | Redundancy terminates at AES67 boundary — Primary port only | Informational; no action required |
+| F01 | Flow | Warning | Flow slot exhaustion — stream count exceeds Dante chipset limit | Reduce stream count or use a higher-capacity chipset |
+| F02 | Flow | Info | AES67 stream exceeds 8 channels — hardware auto-splits into multiple flows | Informational |
+| F03 | Flow | Error | Multicast prefix mismatch between AES67 devices — silent audio failure | Align multicast prefixes across devices |
+| A01 | Auto | Error | `[auto]` used in `route` or `bus` | Use explicit index |
+| A02 | Auto | Error | Both sides of connection use `[auto]` | Fix one side to explicit range |
+| A03 | Auto | Error | Scalar port or cannot infer count | Add explicit range |
+| A04 | Auto | Error | Auto-assignment overflowed port range | Reduce channels or expand port range |
+| A05 | Auto | Error | No contiguous block available (fragmented) | Reorder explicit assignments |
+| M-I01 | Meta | Info | Unknown `kind` value | Check kind table above |
+| M-I02 | Meta | Info | Deprecated `device_type` used — migrate to `kind` | Run `scripts/migrate-device-type-to-kind.py` or rename manually |
+| M-I03 | Meta | Info | Unknown `rf_subtype` value | Check meta spec |
+| M-I04 | Meta | Info | `rf_band` set but `kind` is not `rf-system` | Add `kind: "rf-system"` or remove `rf_band` |
+| M-I05 | Meta | Warning | `rf_min_channels` must be positive | Fix RF channel count |
+| M-I06 | Meta | Warning | `rf_max_channels` < `rf_min_channels` | Fix RF channel range |
+| M-I07 | Meta | Info | Unknown `dante_chipset` value | Check chipset values: `Ultimo`, `Broadway`, `Brooklyn_II`, `Brooklyn_3`, `HC` |
+| M-I08 | Meta | Warning | Ultimo chipset does not support AES67 RTP flows | Use Brooklyn_II or higher for AES67 |
 
-Use `@suppress(layer)` inside a connect body to silence specific checks.
-Valid layers: `direction`, `mechanical`, `electrical`, `logical`, `temporal`, `structural`, `all`.
+#### Suppression layers
+
+Use `@suppress(layer)` inside a connect body (must be first property):
+
+| Layer | Suppresses |
+|-------|-----------|
+| `direction` | D01-D03 |
+| `mechanical` | M01 |
+| `electrical` | E01-E02 |
+| `logical` | L01 |
+| `temporal` | T01 |
+| `structural` | S14, S15 |
+| `all` | All suppressible checks |
 
 ---
 
@@ -274,7 +439,7 @@ When given a hardware spec sheet, follow this order:
 1. **Name the template** after the model number only — `CL5`, not `Yamaha_CL5`.
 
 2. **Fill `meta`** — manufacturer, model, category. For expansion cards add
-   `device_type: "card"` and `fits: "SlotFormat"`.
+   `kind: "card"` and `fits: "SlotFormat"`.
 
 3. **Map physical ports** — for each physical connector on the device:
    - Identify connector type (`XLR`, `BNC_75`, `etherCON`, etc.)
