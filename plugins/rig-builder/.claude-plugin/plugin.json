@@ -1,0 +1,5 @@
+{
+  "name": "rig-builder",
+  "description": "Interactive rig design and import for SignalCanvas: guides users through building signal flow diagrams from conversation, CSV/XLSX patch lists, or screenshots of Visio and handwritten diagrams. Pushes PatchLang to the canvas section-by-section via the MCP server.",
+  "version": "1.0.0"
+}
