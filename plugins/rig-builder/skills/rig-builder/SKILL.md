@@ -29,6 +29,27 @@ If they want to add to an existing rig, call `get_patch` to read what's there be
 
 ---
 
+## Working with Files
+
+**Always write PatchLang to a `.patch` file on disk — never accumulate text in memory.**
+
+The file is the source of truth. The canvas is a live view of it.
+
+```
+Write/Edit .patch file  →  compile_patch(content)  →  fix errors  →  set_patch(content)
+```
+
+**Workflow:**
+1. Create a named `.patch` file (e.g. `MyChurch.patch`) in the project directory
+2. Write each section to the file using the Write or Edit tool
+3. Call `compile_patch` with the file contents — read the errors, fix them in the file
+4. Call `set_patch` with the file contents — nodes spring onto the canvas
+5. Continue editing the file for each new section
+
+This means the user ends up with a real `.patch` file they can open, share, and version-control.
+
+---
+
 ## Understanding What the User Has
 
 Users arrive with different starting points. Identify which case you're in immediately:
@@ -80,11 +101,12 @@ If the image is unclear, describe what you can see and ask for confirmation befo
 
 ## Building the Rig
 
-Always build **incrementally** — one `set_patch` per logical section. This creates the
+Always build **incrementally** — one section per `set_patch` call. This creates the
 spring animation effect where each group of nodes bounces into position as you add it.
 
 **Each `set_patch` call must include the full patch so far** — PatchLang is not append-only.
-Every call replaces the entire canvas content.
+Every call replaces the entire canvas content. Since you're writing to a file, you just
+append to the file then pass the full file contents to `set_patch`.
 
 ### Recommended Section Order
 
@@ -105,6 +127,41 @@ Announce each section as you go:
 
 Pause briefly between `set_patch` calls — the spring animation takes ~550ms.
 Tell the user what you're doing as you go so the visual and the conversation stay in sync.
+
+---
+
+## Validation Loop
+
+**Before every `set_patch`, call `compile_patch` with the current file contents.**
+
+`compile_patch` returns:
+```json
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [{ "code": "T01", "severity": "warning", "message": "Clock domain mismatch" }],
+  "info": []
+}
+```
+
+**If `ok` is false:**
+1. Read each error — the `code` and `message` tell you exactly what's wrong
+2. Fix it in the `.patch` file
+3. Call `compile_patch` again
+4. Repeat until `ok: true`
+5. Then call `set_patch`
+
+**Common errors and fixes:**
+
+| Code | Cause | Fix |
+|------|-------|-----|
+| S03 | Unknown port name | Check port name spelling, check split `_In`/`_Out` naming |
+| S15 | Range size mismatch | Both sides of connect must have same channel count |
+| D01 | `out → out` connection | Swap direction of one port |
+| L01 | Protocol mismatch | Check `[Dante]` vs `[MADI]` attributes |
+| S01 | Unknown template | Template referenced in instance doesn't exist |
+
+Don't tell the user about every DRC rule you're applying — just fix silently and push clean content.
 
 ---
 
@@ -165,34 +222,15 @@ Then stop and wait. Don't keep building without direction.
 
 ---
 
-## Quality Checks Before Each Push
-
-Before every `set_patch` call, verify:
-- [ ] All `connect` statements have matching directional port names (`_In`/`_Out`)
-- [ ] Bidirectional Dante/MADI cables have two connect statements
-- [ ] No `io` ports on channel-based protocols (Dante, MADI, AES3, Analogue)
-- [ ] All referenced template names exist in this file
-- [ ] No hyphens in identifiers — underscores only
-- [ ] Range sizes match on both sides of every `connect`
-
-If you catch an error, fix it silently. Don't tell the user about every DRC rule you're applying — just produce correct output.
-
----
-
 ## Example: Worship Rig From CSV
 
-Given `worship-patch-list.csv`:
-```
-Source Device,Source Port,Dest Device,Dest Port,Cable ID,Signal Name,Source Model,Dest Model
-Stage Left Box,Mic In 1,FOH Console,Ch 1,CAB-001,Lead Vocal,Rio3224,CL5
-Dante Switch,Port 1,Stage Left Box,Dante Pri,CAB-030,,SG112_24CT,Rio3224
-```
+Given `worship-patch-list.csv`, the agent creates `worship-rig.patch` and builds it section by section.
 
-**Section 1 — Templates:**
+**Section 1 — Write templates to file, compile, push:**
 ```
-set_patch("
+# Write to worship-rig.patch:
 template Rio3224 {
-  meta { manufacturer: \"Yamaha\", model: \"Rio3224\", category: \"Stagebox\" }
+  meta { manufacturer: "Yamaha", model: "Rio3224", category: "Stagebox" }
   ports {
     Dante_Pri_In[1..32]:  in(etherCON) [Dante, primary]
     Dante_Pri_Out[1..32]: out(etherCON) [Dante, primary]
@@ -202,64 +240,64 @@ template Rio3224 {
   bridge Mic_In -> Dante_Pri_Out
 }
 template CL5 {
-  meta { manufacturer: \"Yamaha\", model: \"CL5\", category: \"Console\" }
+  meta { manufacturer: "Yamaha", model: "CL5", category: "Console" }
   ports {
     Dante_Pri_In[1..72]:  in(etherCON) [Dante, primary]
     Dante_Pri_Out[1..24]: out(etherCON) [Dante, primary]
-    Mix_Bus[1..24]: out
+    Mix_Bus_Out[1..2]: out(XLR)
+    Aux_Out[1..8]: out(XLR)
   }
 }
 template SG112_24CT {
-  meta { manufacturer: \"Yamaha\", model: \"SG112-24CT\", category: \"Switch\" }
+  meta { manufacturer: "Yamaha", model: "SG112-24CT", category: "Switch" }
   ports {
     Port_In[1..24]:  in(etherCON) [Dante]
     Port_Out[1..24]: out(etherCON) [Dante]
   }
 }
-")
+
+# compile_patch(file contents) → {"ok": true, ...}
+# set_patch(file contents) → nodes spring in
 ```
 
-**Section 2 — Instances:**
+**Section 2 — Append instances, compile, push:**
 ```
-set_patch("
-# ... (templates from above) ...
+# Append to worship-rig.patch:
+instance FOH_Console is CL5 { location: "Front of House" }
+instance Stage_Left is Rio3224 { location: "Stage Left" }
+instance Stage_Right is Rio3224 { location: "Stage Right" }
+instance Dante_Switch is SG112_24CT { location: "FOH Rack" }
 
-instance FOH_Console is CL5 { location: \"Front of House\" }
-instance Stage_Left is Rio3224 { location: \"Stage Left\" }
-instance Stage_Right is Rio3224 { location: \"Stage Right\" }
-instance Dante_Switch is SG112_24CT { location: \"FOH Rack\" }
-")
-```
-
-**Section 3 — Dante network:**
-```
-set_patch("
-# ... (templates + instances) ...
-
-connect Dante_Switch.Port_Out[1] -> Stage_Left.Dante_Pri_In { cable: \"CAB-030\" }
-connect Stage_Left.Dante_Pri_Out -> Dante_Switch.Port_In[1] { cable: \"CAB-030\" }
-connect Dante_Switch.Port_Out[2] -> Stage_Right.Dante_Pri_In { cable: \"CAB-031\" }
-connect Stage_Right.Dante_Pri_Out -> Dante_Switch.Port_In[2] { cable: \"CAB-031\" }
-connect Dante_Switch.Port_Out[3] -> FOH_Console.Dante_Pri_In { cable: \"CAB-032\" }
-connect FOH_Console.Dante_Pri_Out -> Dante_Switch.Port_In[3] { cable: \"CAB-032\" }
-")
+# compile_patch → ok: true → set_patch → instances spring in
 ```
 
-**Section 4 — Channel labels:**
+**Section 3 — Append Dante connections, compile, push:**
 ```
-set_patch("
-# ... (all previous content) ...
+# Append to worship-rig.patch:
+connect Dante_Switch.Port_Out[1] -> Stage_Left.Dante_Pri_In[1] { cable: "CAB-030" }
+connect Stage_Left.Dante_Pri_Out[1] -> Dante_Switch.Port_In[1] { cable: "CAB-030" }
+connect Dante_Switch.Port_Out[2] -> Stage_Right.Dante_Pri_In[1] { cable: "CAB-031" }
+connect Stage_Right.Dante_Pri_Out[1] -> Dante_Switch.Port_In[2] { cable: "CAB-031" }
+connect Dante_Switch.Port_Out[3] -> FOH_Console.Dante_Pri_In[1] { cable: "CAB-032" }
+connect FOH_Console.Dante_Pri_Out[1] -> Dante_Switch.Port_In[3] { cable: "CAB-032" }
 
+# compile_patch → ok: true → set_patch → edges appear
+```
+
+**Section 4 — Append config labels, compile, push:**
+```
+# Append to worship-rig.patch:
 config FOH_Console {
-  label Dante_Pri_In[1]: \"Lead Vocal\" { phantom: \"true\" }
-  label Dante_Pri_In[2]: \"Acoustic Guitar\" { phantom: \"true\" }
-  label Dante_Pri_In[3]: \"Bass DI\"
-  label Dante_Pri_In[4]: \"Keys L\"
-  label Dante_Pri_In[5]: \"Keys R\"
-  label Dante_Pri_In[9]: \"Kick Drum\"
-  label Dante_Pri_In[10]: \"Snare Top\"
+  label Dante_Pri_In[1]: "Lead Vocal" { phantom: "true" }
+  label Dante_Pri_In[2]: "Acoustic Guitar" { phantom: "true" }
+  label Dante_Pri_In[3]: "Bass DI"
+  label Dante_Pri_In[4]: "Keys L"
+  label Dante_Pri_In[5]: "Keys R"
+  label Dante_Pri_In[9]: "Kick Drum"
+  label Dante_Pri_In[10]: "Snare Top"
 }
-")
+
+# compile_patch → ok: true → set_patch → labels appear on nodes
 ```
 
 ---
