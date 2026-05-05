@@ -18,6 +18,7 @@ Claude Code picks up skills from `~/.claude/skills/` automatically.
 | `signalcanvas-patchlang` | Writing, editing, or validating `.patch` files |
 | `code-rules` | Any code task — enforces file size, DRY, naming, and error handling rules |
 | `signalcanvas-builder` | Building or importing a signal flow into SignalCanvas — from conversation, CSV/XLSX patch lists, or screenshots of Visio/handwritten diagrams |
+| `stock-library-builder` | Building, editing, or auditing device templates in the SignalCanvas stock library (`src/data/stdlib/`) |
 
 ## Usage
 
